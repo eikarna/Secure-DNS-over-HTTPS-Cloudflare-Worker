@@ -1,4 +1,4 @@
-# 🛡️ Secure DNS over HTTPS (DoH) V2.1.0
+# 🛡️ Secure DNS over HTTPS (DoH) V2.1.1
 
 ### **The Most Reliable Parallel-Racing DNS Resolver on Cloudflare Workers**
 
@@ -11,9 +11,13 @@
 [![Farsi](https://img.shields.io/badge/Readme-Farsi-green)](./README-Fa.md)
 ![Repository Views](https://komarev.com/ghpvc/?username=TheGreatAzizi&repo=Secure-DNS-over-HTTPS-Cloudflare-Worker&color=red)
 
-A high-performance Cloudflare Worker providing a **custom DoH endpoint** with a built-in interactive dashboard. Built with a unique **8-Way Edge Racing Engine**, this service queries over 50 global DNS nodes simultaneously to return the fastest verified result.
+A high-performance Cloudflare Worker providing a **custom DoH endpoint** with a built-in interactive dashboard. Built with a unique **8-Way Edge Racing Engine**, this service queries over 190 global DNS nodes simultaneously to return the fastest verified result.
 
 **Demo:** [dns.theazizi.ir](https://dns.theazizi.ir) | **Endpoint:** `https://dns.theazizi.ir/dns-query`
+
+> [!NOTE]
+> ### ✨ New Features in V2.1.1
+> - Over 130 new Doh servers added to the backend - Update Worker.js
 
 ---
 
@@ -30,7 +34,7 @@ This service effectively bypasses DNS Poisoning (G-FW). It cannot bypass IP-leve
 
 ---
 
-## 🚀 Advanced Architecture: v2.1 Racing Engine
+## 🚀 Advanced Architecture: v2.1.1 Racing Engine
 
 Standard DoH can sometimes be slow due to single-provider congestion. Our Pro engine uses a superior approach:
 - **8-Track Concurrency:** For every query, the worker sends requests to 8 of the best healthy global providers at the exact same time.
