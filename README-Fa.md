@@ -11,7 +11,7 @@
 [![中文](https://img.shields.io/badge/Readme-中文-red)](./README-Zh.md)
 ![Repository Views](https://komarev.com/ghpvc/?username=TheGreatAzizi&repo=Secure-DNS-over-HTTPS-Cloudflare-Worker&color=red)
 
-یک ورکر کلودفلر با کارایی بالا که یک **اندپوینت اختصاصی DoH** را همراه با داشبورد آموزشی تعاملی فراهم می‌کند. این سرویس با استفاده از موتور منحصر‌به‌فرد **8-Way Edge Racing**، همزمان از بیش از ۵۰ نود DNS جهانی استعلام می‌گیرد تا سریع‌ترین پاسخ تایید شده را به شما برگرداند.
+یک ورکر کلودفلر با کارایی بالا که یک **اندپوینت اختصاصی DoH** را همراه با داشبورد آموزشی تعاملی فراهم می‌کند. این سرویس با استفاده از موتور منحصر‌به‌فرد **8-Way Edge Racing**، همزمان از بیش از 190 نود DNS جهانی استعلام می‌گیرد تا سریع‌ترین پاسخ تایید شده را به شما برگرداند.
 
 **دمو:** [dns.theazizi.ir](https://dns.theazizi.ir) | **اندپوینت:** `https://dns.theazizi.ir/dns-query`
 
