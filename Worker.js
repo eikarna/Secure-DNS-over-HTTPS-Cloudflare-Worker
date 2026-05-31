@@ -2,16 +2,6 @@
  * VERSION: 2.2.0
  * GITHUB: https://github.com/TheGreatAzizi/Secure-DNS-over-HTTPS-Cloudflare-Worker
  * Runtime: Cloudflare Workers Module Syntax
- *
- * Changes in 2.2.0:
- * - Safe GET base64url decoding
- * - Method/content-type/body-size validation
- * - Per-upstream timeout with AbortController
- * - Resolver profiles instead of mixing filtered/unfiltered/DNS64 resolvers
- * - Bounded in-memory cache and throttle maps
- * - Safer HTML escaping for host-derived endpoint
- * - Cleaner UI JS: no global event usage, modern Clipboard API with fallback
- * - More accurate security/privacy wording
  */
 
 const VERSION = '2.2.0';
