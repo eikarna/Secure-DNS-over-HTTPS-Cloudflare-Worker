@@ -1,174 +1,747 @@
 /**
- * VERSION: 2.1.1
+ * VERSION: 2.2.0
  * GITHUB: https://github.com/TheGreatAzizi/Secure-DNS-over-HTTPS-Cloudflare-Worker
+ * Runtime: Cloudflare Workers Module Syntax
+ *
+ * Changes in 2.2.0:
+ * - Safe GET base64url decoding
+ * - Method/content-type/body-size validation
+ * - Per-upstream timeout with AbortController
+ * - Resolver profiles instead of mixing filtered/unfiltered/DNS64 resolvers
+ * - Bounded in-memory cache and throttle maps
+ * - Safer HTML escaping for host-derived endpoint
+ * - Cleaner UI JS: no global event usage, modern Clipboard API with fallback
+ * - More accurate security/privacy wording
  */
 
-const DNS_UPSTREAMS = [
-"https://cloudflare-dns.com/dns-query", "https://1.1.1.1/dns-query",
-"https://1.0.0.1/dns-query", "https://mozilla.cloudflare-dns.com/dns-query",
-"https://security.cloudflare-dns.com/dns-query", "https://family.cloudflare-dns.com/dns-query",
-"https://dns64.cloudflare-dns.com/dns-query", "https://brave.cloudflare-dns.com/dns-query",
-"https://dns.google/dns-query", "https://8888.google/dns-query",
-"https://dns64.dns.google/dns-query", "https://dns.quad9.net/dns-query",
-"https://dns9.quad9.net/dns-query", "https://dns10.quad9.net/dns-query",
-"https://dns11.quad9.net/dns-query", "https://dns12.quad9.net/dns-query",
-"https://dns.nextdns.io/dns-query", "https://doh.opendns.com/dns-query",
-"https://doh.familyshield.opendns.com/dns-query", "https://doh.umbrella.com/dns-query",
-"https://dns.adguard-dns.com/dns-query", "https://unfiltered.adguard-dns.com/dns-query",
-"https://family.adguard-dns.com/dns-query", "https://doh.mullvad.net/dns-query",
-"https://adblock.doh.mullvad.net/dns-query", "https://base.dns.mullvad.net/dns-query",
-"https://extended.dns.mullvad.net/dns-query", "https://all.dns.mullvad.net/dns-query",
-"https://family.dns.mullvad.net/dns-query", "https://freedns.controld.com/p0",
-"https://freedns.controld.com/p1", "https://freedns.controld.com/p2",
-"https://freedns.controld.com/p3", "https://freedns.controld.com/family",
-"https://freedns.controld.com/uncensored", "https://sky.rethinkdns.com/dns-query",
-"https://doh.cleanbrowsing.org/doh/security-filter/", "https://doh.cleanbrowsing.org/doh/adult-filter/",
-"https://doh.cleanbrowsing.org/doh/family-filter/", "https://zero.dns0.eu/dns-query",
-"https://kids.dns0.eu/dns-query", "https://private.canadianshield.cira.ca/dns-query",
-"https://protected.canadianshield.cira.ca/dns-query", "https://family.canadianshield.cira.ca/dns-query",
-"https://protective.joindns4.eu/dns-query", "https://child.joindns4.eu/dns-query",
-"https://noads.joindns4.eu/dns-query", "https://child-noads.joindns4.eu/dns-query",
-"https://unfiltered.joindns4.eu/dns-query", "https://wikimedia-dns.org/dns-query",
-"https://doh.wikimedia.org/dns-query", "https://dns.switch.ch/dns-query",
-"https://dns.digitale-gesellschaft.ch/dns-query", "https://doh.libredns.gr/dns-query",
-"https://doh.libredns.gr/noads", "https://odvr.nic.cz/dns-query",
-"https://doh.ffmuc.net/dns-query", "https://doh.applied-privacy.net/query",
-"https://dns.aa.net.uk/dns-query", "https://dns.alidns.com/dns-query",
-"https://dns.twnic.tw/dns-query", "https://dns.pub/dns-query",
-"https://doh.360.cn/dns-query", "https://public.dns.iij.jp/dns-query",
-"https://doh.dns.sb/dns-query", "https://doh.pub/dns-query",
-"https://ordns.he.net/dns-query", "https://dns.brahma.world/dns-query",
-"https://dns.cfiec.net/dns-query", "https://dns.dnshome.de/dns-query",
-"https://dnsforge.de/dns-query", "https://clean.dnsforge.de/dns-query",
-"https://hard.dnsforge.de/dns-query", "https://doh-fi.blahdns.com/dns-query",
-"https://doh-jp.blahdns.com/dns-query", "https://doh-de.blahdns.com/dns-query",
-"https://doh-sg.blahdns.com/dns-query", "https://doh.centraleu.pi-dns.com/dns-query",
-"https://doh.westus.pi-dns.com/dns-query", "https://doh.eastus.pi-dns.com/dns-query",
-"https://doh.northeu.pi-dns.com/dns-query", "https://doh.tiar.app/dns-query",
-"https://doh.tiarap.org/dns-query", "https://jp.tiar.app/dns-query",
-"https://jp.tiarap.org/dns-query", "https://dns.containerpi.com/dns-query",
-"https://dns.rubyfish.cn/dns-query", "https://doh.armadillodns.net/dns-query",
-"https://commons.host/dns-query", "https://doh.crypto.sx/dns-query",
-"https://dns.dnswarden.com/uncensored", "https://resolver-eu.lelux.fi/dns-query",
-"https://doh.bortzmeyer.fr/dns-query", "https://dns.oszx.co/dns-query",
-"https://ada.openbld.net/dns-query", "https://ric.openbld.net/dns-query",
-"https://luna.openbld.net/dns-query", "https://fra01.dnscry.pt/dns-query",
-"https://lon01.dnscry.pt/dns-query", "https://nyc01.dnscry.pt/dns-query",
-"https://par01.dnscry.pt/dns-query", "https://ams01.dnscry.pt/dns-query",
-"https://sin01.dnscry.pt/dns-query", "https://syd01.dnscry.pt/dns-query",
-"https://tok01.dnscry.pt/dns-query", "https://sea01.dnscry.pt/dns-query",
-"https://lax01.dnscry.pt/dns-query", "https://anycast.uncensoreddns.org/dns-query",
-"https://unicast.uncensoreddns.org/dns-query", "https://dns.njal.la/dns-query",
-"https://freedom.mydns.network/dns-query", "https://paranoia.mydns.network/dns-query",
-"https://adblock.mydns.network/dns-query", "https://family.mydns.network/dns-query",
-"https://dns.comss.one/dns-query", "https://router.comss.one/dns-query",
-"https://ca01.dns4me.net", "https://ca02.dns4me.net",
-"https://us01.dns4me.net", "https://us02.dns4me.net",
-"https://uk01.dns4me.net", "https://au01.dns4me.net",
-"https://sg01.dns4me.net", "https://de01.dns4me.net",
-"https://dnspub.restena.lu/dns-query", "https://safeservedns.com/dns-query",
-"https://dns.rabbitdns.org/dns-query", "https://security.rabbitdns.org/dns-query",
-"https://family.rabbitdns.org/dns-query", "https://v.recipes/dns-query",
-"https://v.recipes/dns-adblock", "https://v.recipes/dns-ecs",
-"https://dns.surfsharkdns.com/dns-query", "https://dns.blokada.org/dns-query",
-"https://root.hagezi.org/dns-query", "https://wurzn.hagezi.org/dns-query",
-"https://juuri.hagezi.org/dns-query", "https://eu1.dns.lavate.ch/dns-query",
-"https://doh.seby.io/dns-query", "https://resolver1.absolight.net/dns-query",
-"https://resolver2.absolight.net/dns-query", "https://per.adfilter.net/dns-query",
-"https://syd.adfilter.net/dns-query", "https://adl.adfilter.net/dns-query",
-"https://ns0.fdn.fr/dns-query", "https://ns1.fdn.fr/dns-query",
-"https://dns.technitium.com/dns-query", "https://dns.telekom.de/dns-query",
-"https://dns.aquilenet.fr/dns-query", "https://doh.lacontrevoie.fr/dns-query",
-"https://dns.belnet.be/dns-query", "https://dns1.in-berlin.de/dns-query",
-"https://dns2.in-berlin.de/dns-query", "https://resolver.dnsprivacy.org.uk/dns-query",
-"https://resolver.sunet.se/dns-query", "https://ns1.opennameserver.org/dns-query",
-"https://dns.froth.zone/dns-query", "https://dns.stormycloud.org/dns-query",
-"https://adfree.usableprivacy.net/dns-query", "https://doh.dns4all.eu/dns-query",
-"https://dns.smartguard.io/dns-query", "https://privacy.plumedns.com/dns-query",
-"https://dns.bitdefender.net/dns-query", "https://dns.cctld.kg/dns-query",
-"https://doh.lv/dns-query", "https://doh.nic.lv/dns-query",
-"https://japan.dnsovertor.cc/dns-query", "https://chuncheon.dnsovertor.cc/dns-query",
-"https://seoul.dnsovertor.cc/dns-query", "https://dns.cert.ee/dns-query",
-"https://secure.hafnova.com/dns-query", "https://dns.kescher.at/dns-query",
-"https://ibuki.cgnat.net/dns-query", "https://doh.li/dns-query",
-"https://dns4eu.online/dns-query", "https://dns.elemental.software/dns-query",
-"https://doth.huque.com/dns-query", "https://zdn.ro/dns-query",
-"https://doh.zknt.org/dns-query", "https://ns2.4netguides.org/dns-query",
-"https://dukun.de/dns-query", "https://dns.cynthialabs.net/dns-query"
-];
+const VERSION = '2.2.0';
 
-const APP_STATE = {
-  RESOLVERS: DNS_UPSTREAMS.map(u => ({ url: u, score: 100 })),
-  CACHE_STORE: new Map(),
-  THROTTLE: new Map(),
-  TTL: 300 
+const CONFIG = {
+  DNS_PATH: '/dns-query',
+  DEFAULT_PROFILE: 'all',
+  CACHE_TTL_SECONDS: 300,
+  MAX_CACHE_ENTRIES: 5000,
+  MAX_THROTTLE_ENTRIES: 20000,
+  MAX_DNS_MESSAGE_BYTES: 4096,
+  RATE_LIMIT_WINDOW_MS: 60_000,
+  RATE_LIMIT_MAX_REQUESTS: 250,
+  UPSTREAM_TIMEOUT_MS: 1800,
+  RACE_COUNT: 4,
+  SCORE_START: 100,
+  SCORE_MIN: 0,
+  SCORE_MAX: 100,
+  SCORE_SUCCESS_DELTA: 1,
+  SCORE_FAILURE_DELTA: 15,
+  SCORE_TIMEOUT_DELTA: 10
 };
 
+const ALL_DNS_UPSTREAMS = [
+  'https://cloudflare-dns.com/dns-query', 'https://1.1.1.1/dns-query',
+  'https://1.0.0.1/dns-query', 'https://mozilla.cloudflare-dns.com/dns-query',
+  'https://security.cloudflare-dns.com/dns-query', 'https://family.cloudflare-dns.com/dns-query',
+  'https://dns64.cloudflare-dns.com/dns-query', 'https://brave.cloudflare-dns.com/dns-query',
+  'https://dns.google/dns-query', 'https://8888.google/dns-query',
+  'https://dns64.dns.google/dns-query', 'https://dns.quad9.net/dns-query',
+  'https://dns9.quad9.net/dns-query', 'https://dns10.quad9.net/dns-query',
+  'https://dns11.quad9.net/dns-query', 'https://dns12.quad9.net/dns-query',
+  'https://dns.nextdns.io/dns-query', 'https://doh.opendns.com/dns-query',
+  'https://doh.familyshield.opendns.com/dns-query', 'https://doh.umbrella.com/dns-query',
+  'https://dns.adguard-dns.com/dns-query', 'https://unfiltered.adguard-dns.com/dns-query',
+  'https://family.adguard-dns.com/dns-query', 'https://doh.mullvad.net/dns-query',
+  'https://adblock.doh.mullvad.net/dns-query', 'https://base.dns.mullvad.net/dns-query',
+  'https://extended.dns.mullvad.net/dns-query', 'https://all.dns.mullvad.net/dns-query',
+  'https://family.dns.mullvad.net/dns-query', 'https://freedns.controld.com/p0',
+  'https://freedns.controld.com/p1', 'https://freedns.controld.com/p2',
+  'https://freedns.controld.com/p3', 'https://freedns.controld.com/family',
+  'https://freedns.controld.com/uncensored', 'https://sky.rethinkdns.com/dns-query',
+  'https://doh.cleanbrowsing.org/doh/security-filter/', 'https://doh.cleanbrowsing.org/doh/adult-filter/',
+  'https://doh.cleanbrowsing.org/doh/family-filter/', 'https://zero.dns0.eu/dns-query',
+  'https://kids.dns0.eu/dns-query', 'https://private.canadianshield.cira.ca/dns-query',
+  'https://protected.canadianshield.cira.ca/dns-query', 'https://family.canadianshield.cira.ca/dns-query',
+  'https://protective.joindns4.eu/dns-query', 'https://child.joindns4.eu/dns-query',
+  'https://noads.joindns4.eu/dns-query', 'https://child-noads.joindns4.eu/dns-query',
+  'https://unfiltered.joindns4.eu/dns-query', 'https://wikimedia-dns.org/dns-query',
+  'https://doh.wikimedia.org/dns-query', 'https://dns.switch.ch/dns-query',
+  'https://dns.digitale-gesellschaft.ch/dns-query', 'https://doh.libredns.gr/dns-query',
+  'https://doh.libredns.gr/noads', 'https://odvr.nic.cz/dns-query',
+  'https://doh.ffmuc.net/dns-query', 'https://doh.applied-privacy.net/query',
+  'https://dns.aa.net.uk/dns-query', 'https://dns.alidns.com/dns-query',
+  'https://dns.twnic.tw/dns-query', 'https://dns.pub/dns-query',
+  'https://doh.360.cn/dns-query', 'https://public.dns.iij.jp/dns-query',
+  'https://doh.dns.sb/dns-query', 'https://doh.pub/dns-query',
+  'https://ordns.he.net/dns-query', 'https://dns.brahma.world/dns-query',
+  'https://dns.cfiec.net/dns-query', 'https://dns.dnshome.de/dns-query',
+  'https://dnsforge.de/dns-query', 'https://clean.dnsforge.de/dns-query',
+  'https://hard.dnsforge.de/dns-query', 'https://doh-fi.blahdns.com/dns-query',
+  'https://doh-jp.blahdns.com/dns-query', 'https://doh-de.blahdns.com/dns-query',
+  'https://doh-sg.blahdns.com/dns-query', 'https://doh.centraleu.pi-dns.com/dns-query',
+  'https://doh.westus.pi-dns.com/dns-query', 'https://doh.eastus.pi-dns.com/dns-query',
+  'https://doh.northeu.pi-dns.com/dns-query', 'https://doh.tiar.app/dns-query',
+  'https://doh.tiarap.org/dns-query', 'https://jp.tiar.app/dns-query',
+  'https://jp.tiarap.org/dns-query', 'https://dns.containerpi.com/dns-query',
+  'https://dns.rubyfish.cn/dns-query', 'https://doh.armadillodns.net/dns-query',
+  'https://commons.host/dns-query', 'https://doh.crypto.sx/dns-query',
+  'https://dns.dnswarden.com/uncensored', 'https://resolver-eu.lelux.fi/dns-query',
+  'https://doh.bortzmeyer.fr/dns-query', 'https://dns.oszx.co/dns-query',
+  'https://ada.openbld.net/dns-query', 'https://ric.openbld.net/dns-query',
+  'https://luna.openbld.net/dns-query', 'https://fra01.dnscry.pt/dns-query',
+  'https://lon01.dnscry.pt/dns-query', 'https://nyc01.dnscry.pt/dns-query',
+  'https://par01.dnscry.pt/dns-query', 'https://ams01.dnscry.pt/dns-query',
+  'https://sin01.dnscry.pt/dns-query', 'https://syd01.dnscry.pt/dns-query',
+  'https://tok01.dnscry.pt/dns-query', 'https://sea01.dnscry.pt/dns-query',
+  'https://lax01.dnscry.pt/dns-query', 'https://anycast.uncensoreddns.org/dns-query',
+  'https://unicast.uncensoreddns.org/dns-query', 'https://dns.njal.la/dns-query',
+  'https://freedom.mydns.network/dns-query', 'https://paranoia.mydns.network/dns-query',
+  'https://adblock.mydns.network/dns-query', 'https://family.mydns.network/dns-query',
+  'https://dns.comss.one/dns-query', 'https://router.comss.one/dns-query',
+  'https://ca01.dns4me.net', 'https://ca02.dns4me.net',
+  'https://us01.dns4me.net', 'https://us02.dns4me.net',
+  'https://uk01.dns4me.net', 'https://au01.dns4me.net',
+  'https://sg01.dns4me.net', 'https://de01.dns4me.net',
+  'https://dnspub.restena.lu/dns-query', 'https://safeservedns.com/dns-query',
+  'https://dns.rabbitdns.org/dns-query', 'https://security.rabbitdns.org/dns-query',
+  'https://family.rabbitdns.org/dns-query', 'https://v.recipes/dns-query',
+  'https://v.recipes/dns-adblock', 'https://v.recipes/dns-ecs',
+  'https://dns.surfsharkdns.com/dns-query', 'https://dns.blokada.org/dns-query',
+  'https://root.hagezi.org/dns-query', 'https://wurzn.hagezi.org/dns-query',
+  'https://juuri.hagezi.org/dns-query', 'https://eu1.dns.lavate.ch/dns-query',
+  'https://doh.seby.io/dns-query', 'https://resolver1.absolight.net/dns-query',
+  'https://resolver2.absolight.net/dns-query', 'https://per.adfilter.net/dns-query',
+  'https://syd.adfilter.net/dns-query', 'https://adl.adfilter.net/dns-query',
+  'https://ns0.fdn.fr/dns-query', 'https://ns1.fdn.fr/dns-query',
+  'https://dns.technitium.com/dns-query', 'https://dns.telekom.de/dns-query',
+  'https://dns.aquilenet.fr/dns-query', 'https://doh.lacontrevoie.fr/dns-query',
+  'https://dns.belnet.be/dns-query', 'https://dns1.in-berlin.de/dns-query',
+  'https://dns2.in-berlin.de/dns-query', 'https://resolver.dnsprivacy.org.uk/dns-query',
+  'https://resolver.sunet.se/dns-query', 'https://ns1.opennameserver.org/dns-query',
+  'https://dns.froth.zone/dns-query', 'https://dns.stormycloud.org/dns-query',
+  'https://adfree.usableprivacy.net/dns-query', 'https://doh.dns4all.eu/dns-query',
+  'https://dns.smartguard.io/dns-query', 'https://privacy.plumedns.com/dns-query',
+  'https://dns.bitdefender.net/dns-query', 'https://dns.cctld.kg/dns-query',
+  'https://doh.lv/dns-query', 'https://doh.nic.lv/dns-query',
+  'https://japan.dnsovertor.cc/dns-query', 'https://chuncheon.dnsovertor.cc/dns-query',
+  'https://seoul.dnsovertor.cc/dns-query', 'https://dns.cert.ee/dns-query',
+  'https://secure.hafnova.com/dns-query', 'https://dns.kescher.at/dns-query',
+  'https://ibuki.cgnat.net/dns-query', 'https://doh.li/dns-query',
+  'https://dns4eu.online/dns-query', 'https://dns.elemental.software/dns-query',
+  'https://doth.huque.com/dns-query', 'https://zdn.ro/dns-query',
+  'https://doh.zknt.org/dns-query', 'https://ns2.4netguides.org/dns-query',
+  'https://dukun.de/dns-query', 'https://dns.cynthialabs.net/dns-query'
+];
+
+const RESOLVER_PROFILES = {
+  // General mode: no separation. /dns-query uses this full pool by default.
+  all: ALL_DNS_UPSTREAMS,
+
+  // Optional separated profiles are still available for users who want predictable policy behavior.
+  default: [
+    'https://cloudflare-dns.com/dns-query',
+    'https://1.1.1.1/dns-query',
+    'https://1.0.0.1/dns-query',
+    'https://mozilla.cloudflare-dns.com/dns-query',
+    'https://brave.cloudflare-dns.com/dns-query',
+    'https://dns.google/dns-query',
+    'https://8888.google/dns-query',
+    'https://dns.quad9.net/dns-query',
+    'https://dns11.quad9.net/dns-query',
+    'https://doh.mullvad.net/dns-query',
+    'https://base.dns.mullvad.net/dns-query',
+    'https://unfiltered.adguard-dns.com/dns-query',
+    'https://freedns.controld.com/p0',
+    'https://freedns.controld.com/uncensored',
+    'https://wikimedia-dns.org/dns-query',
+    'https://doh.wikimedia.org/dns-query',
+    'https://dns.switch.ch/dns-query',
+    'https://odvr.nic.cz/dns-query'
+  ],
+
+  security: [
+    'https://security.cloudflare-dns.com/dns-query',
+    'https://dns.quad9.net/dns-query',
+    'https://dns9.quad9.net/dns-query',
+    'https://dns10.quad9.net/dns-query',
+    'https://dns11.quad9.net/dns-query',
+    'https://dns12.quad9.net/dns-query',
+    'https://protected.canadianshield.cira.ca/dns-query',
+    'https://doh.cleanbrowsing.org/doh/security-filter/',
+    'https://zero.dns0.eu/dns-query',
+    'https://protective.joindns4.eu/dns-query',
+    'https://safeservedns.com/dns-query',
+    'https://security.rabbitdns.org/dns-query',
+    'https://dns.bitdefender.net/dns-query',
+    'https://dns.cert.ee/dns-query'
+  ],
+
+  family: [
+    'https://family.cloudflare-dns.com/dns-query',
+    'https://family.adguard-dns.com/dns-query',
+    'https://doh.familyshield.opendns.com/dns-query',
+    'https://freedns.controld.com/family',
+    'https://doh.cleanbrowsing.org/doh/adult-filter/',
+    'https://doh.cleanbrowsing.org/doh/family-filter/',
+    'https://kids.dns0.eu/dns-query',
+    'https://family.canadianshield.cira.ca/dns-query',
+    'https://child.joindns4.eu/dns-query',
+    'https://child-noads.joindns4.eu/dns-query',
+    'https://family.dns.mullvad.net/dns-query',
+    'https://family.mydns.network/dns-query',
+    'https://family.rabbitdns.org/dns-query'
+  ],
+
+  adblock: [
+    'https://dns.adguard-dns.com/dns-query',
+    'https://adblock.doh.mullvad.net/dns-query',
+    'https://doh.libredns.gr/noads',
+    'https://noads.joindns4.eu/dns-query',
+    'https://child-noads.joindns4.eu/dns-query',
+    'https://adblock.mydns.network/dns-query',
+    'https://dns.blokada.org/dns-query',
+    'https://root.hagezi.org/dns-query',
+    'https://wurzn.hagezi.org/dns-query',
+    'https://juuri.hagezi.org/dns-query',
+    'https://v.recipes/dns-adblock',
+    'https://adfree.usableprivacy.net/dns-query'
+  ],
+
+  dns64: [
+    'https://dns64.cloudflare-dns.com/dns-query',
+    'https://dns64.dns.google/dns-query'
+  ]
+};
+
+const APP_STATE = {
+  resolversByProfile: buildResolverState(RESOLVER_PROFILES),
+  cache: new Map(),
+  throttle: new Map()
+};
+
+function buildResolverState(profiles) {
+  const state = {};
+
+  for (const [profile, urls] of Object.entries(profiles)) {
+    state[profile] = urls.map((url) => ({
+      url,
+      score: CONFIG.SCORE_START,
+      ok: 0,
+      fail: 0,
+      timeout: 0,
+      lastLatencyMs: null,
+      lastError: null
+    }));
+  }
+
+  return state;
+}
+
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
-    const clientIP = req.headers.get('CF-Connecting-IP') || 'unknown';
+    const clientIP = getClientIP(req);
 
-    if (this.checkSpam(clientIP)) return new Response('Rate Limit', { status: 429 });
-    if (url.pathname === '/dns-query') return this.handleDNS(req);
+    if (url.pathname === CONFIG.DNS_PATH) {
+      if (checkSpam(clientIP)) {
+        return textResponse('Rate limit exceeded', 429, {
+          'cache-control': 'no-store'
+        });
+      }
 
-    return this.renderUI(url.host);
-  },
-
-  checkSpam(ip) {
-    const now = Date.now();
-    let stats = APP_STATE.THROTTLE.get(ip) || { c: 0, ts: now };
-    if (now - stats.ts > 60000) stats = { c: 0, ts: now };
-    stats.c++;
-    APP_STATE.THROTTLE.set(ip, stats);
-    return stats.c > 250;
-  },
-
-  async handleDNS(req) {
-    let payload;
-    if (req.method === 'POST') payload = await req.arrayBuffer();
-    else {
-      const q = new URL(req.url).searchParams.get('dns');
-      if (!q) return new Response('Empty query', { status: 400 });
-      payload = Uint8Array.from(atob(q.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+      return handleDNS(req, url);
     }
 
-    const key = await this.hash(payload);
-    const hit = APP_STATE.CACHE_STORE.get(key);
-    if (hit && (Date.now() - hit.ts < APP_STATE.TTL * 1000)) {
-      return new Response(hit.body, { headers: { 'content-type': 'application/dns-message', 'x-cache': 'HIT' } });
+    if (url.pathname === '/health') {
+      return jsonResponse(getHealthSnapshot(), 200, {
+        'cache-control': 'no-store'
+      });
     }
 
-    const racers = APP_STATE.RESOLVERS.sort((a, b) => b.score - a.score).slice(0, 8);
-    try {
-      const win = await Promise.any(racers.map(node => this.relay(node, payload)));
-      APP_STATE.CACHE_STORE.set(key, { body: win.body, ts: Date.now() });
-      return new Response(win.body, { headers: { 'content-type': 'application/dns-message', 'x-winner-lat': win.t + 'ms' } });
-    } catch (e) {
-      return new Response('Global Resolving Failed', { status: 502 });
+    if (url.pathname === '/' || url.pathname === '/index.html') {
+      return renderUI(url.host);
     }
-  },
 
-  async relay(node, packet) {
-    const start = Date.now();
+    return textResponse('Not found', 404);
+  }
+};
+
+async function handleDNS(req, url) {
+  const methodError = validateMethod(req.method);
+  if (methodError) return methodError;
+
+  let payload;
+
+  try {
+    payload = await readDNSPayload(req, url);
+  } catch (err) {
+    return textResponse(err.message || 'Invalid DNS query', err.status || 400, {
+      'cache-control': 'no-store'
+    });
+  }
+
+  if (!payload || payload.byteLength === 0) {
+    return textResponse('Empty DNS query', 400, { 'cache-control': 'no-store' });
+  }
+
+  if (payload.byteLength > CONFIG.MAX_DNS_MESSAGE_BYTES) {
+    return textResponse('DNS message too large', 413, { 'cache-control': 'no-store' });
+  }
+
+  const parsed = parseDNSQuestion(payload);
+  if (!parsed.ok) {
+    return textResponse(parsed.error, 400, { 'cache-control': 'no-store' });
+  }
+
+  const profile = pickProfile(url);
+  const resolvers = APP_STATE.resolversByProfile[profile] || APP_STATE.resolversByProfile[CONFIG.DEFAULT_PROFILE];
+  const cacheKey = await makeCacheKey(profile, parsed.questionKey);
+  const hit = getCache(cacheKey);
+
+  if (hit) {
+    const responseBody = patchDNSResponseID(hit.body, parsed.id);
+    return dnsResponse(responseBody, {
+      'x-cache': 'HIT',
+      'x-profile': profile
+    });
+  }
+
+  const racers = selectRacers(resolvers);
+
+  try {
+    const winner = await raceResolvers(racers, payload, parsed.id);
+
+    if (isCacheableDNSResponse(winner.body)) {
+      setCache(cacheKey, normalizeDNSResponseID(winner.body), CONFIG.CACHE_TTL_SECONDS);
+    }
+
+    return dnsResponse(winner.body, {
+      'x-cache': 'MISS',
+      'x-profile': profile,
+      'x-winner': sanitizeHeaderValue(winner.url),
+      'x-winner-lat': `${winner.latencyMs}ms`
+    });
+  } catch (err) {
+    return textResponse('Global resolving failed', 502, {
+      'cache-control': 'no-store',
+      'x-profile': profile
+    });
+  }
+}
+
+function validateMethod(method) {
+  if (method !== 'GET' && method !== 'POST') {
+    return textResponse('Method not allowed', 405, {
+      allow: 'GET, POST',
+      'cache-control': 'no-store'
+    });
+  }
+
+  return null;
+}
+
+async function readDNSPayload(req, url) {
+  if (req.method === 'GET') {
+    const q = url.searchParams.get('dns');
+    if (!q) throw httpError('Missing dns query parameter', 400);
+    return decodeBase64Url(q);
+  }
+
+  const contentType = req.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().includes('application/dns-message')) {
+    throw httpError('POST requires content-type: application/dns-message', 415);
+  }
+
+  return new Uint8Array(await req.arrayBuffer());
+}
+
+function decodeBase64Url(input) {
+  if (!/^[A-Za-z0-9_-]+$/.test(input)) {
+    throw httpError('Invalid base64url DNS query', 400);
+  }
+
+  let normalized = input.replace(/-/g, '+').replace(/_/g, '/');
+  normalized += '='.repeat((4 - (normalized.length % 4)) % 4);
+
+  try {
+    return Uint8Array.from(atob(normalized), (c) => c.charCodeAt(0));
+  } catch (_) {
+    throw httpError('Invalid base64url DNS query', 400);
+  }
+}
+
+function parseDNSQuestion(packet) {
+  const bytes = packet instanceof Uint8Array ? packet : new Uint8Array(packet);
+
+  if (bytes.byteLength < 12) {
+    return { ok: false, error: 'DNS message too short' };
+  }
+
+  const id = (bytes[0] << 8) | bytes[1];
+  const flags = (bytes[2] << 8) | bytes[3];
+  const qdcount = (bytes[4] << 8) | bytes[5];
+
+  if ((flags & 0x8000) !== 0) {
+    return { ok: false, error: 'DNS query expected, got response' };
+  }
+
+  if (qdcount !== 1) {
+    return { ok: false, error: 'Exactly one DNS question is required' };
+  }
+
+  let offset = 12;
+  const labels = [];
+
+  while (offset < bytes.length) {
+    const len = bytes[offset++];
+
+    if (len === 0) break;
+
+    if ((len & 0xc0) !== 0) {
+      return { ok: false, error: 'Compressed question names are not accepted' };
+    }
+
+    if (len > 63 || offset + len > bytes.length) {
+      return { ok: false, error: 'Invalid DNS question name' };
+    }
+
+    let label = '';
+    for (let i = 0; i < len; i++) {
+      const ch = bytes[offset++];
+      label += String.fromCharCode(ch).toLowerCase();
+    }
+
+    labels.push(label);
+  }
+
+  if (offset + 4 > bytes.length) {
+    return { ok: false, error: 'Incomplete DNS question' };
+  }
+
+  const qtype = (bytes[offset] << 8) | bytes[offset + 1];
+  const qclass = (bytes[offset + 2] << 8) | bytes[offset + 3];
+  const qname = labels.join('.') || '.';
+
+  return {
+    ok: true,
+    id,
+    qname,
+    qtype,
+    qclass,
+    questionKey: `${qname}|${qtype}|${qclass}`
+  };
+}
+
+function normalizeDNSResponseID(responseBuffer) {
+  const bytes = new Uint8Array(responseBuffer);
+  const copy = new Uint8Array(bytes.length);
+  copy.set(bytes);
+  copy[0] = 0;
+  copy[1] = 0;
+  return copy.buffer;
+}
+
+function patchDNSResponseID(responseBuffer, queryID) {
+  const bytes = new Uint8Array(responseBuffer);
+  const copy = new Uint8Array(bytes.length);
+  copy.set(bytes);
+  copy[0] = (queryID >> 8) & 0xff;
+  copy[1] = queryID & 0xff;
+  return copy.buffer;
+}
+
+function isCacheableDNSResponse(responseBuffer) {
+  const bytes = new Uint8Array(responseBuffer);
+
+  if (bytes.length < 12) return false;
+
+  const flags = (bytes[2] << 8) | bytes[3];
+  const isResponse = (flags & 0x8000) !== 0;
+  const rcode = flags & 0x000f;
+
+  if (!isResponse) return false;
+
+  // Cache NOERROR and NXDOMAIN only. Avoid caching SERVFAIL, REFUSED, etc.
+  return rcode === 0 || rcode === 3;
+}
+
+function pickProfile(url) {
+  const raw = (url.searchParams.get('profile') || CONFIG.DEFAULT_PROFILE).toLowerCase();
+  return APP_STATE.resolversByProfile[raw] ? raw : CONFIG.DEFAULT_PROFILE;
+}
+
+function selectRacers(resolvers) {
+  return [...resolvers]
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const aLat = a.lastLatencyMs ?? Number.MAX_SAFE_INTEGER;
+      const bLat = b.lastLatencyMs ?? Number.MAX_SAFE_INTEGER;
+      return aLat - bLat;
+    })
+    .slice(0, Math.max(1, Math.min(CONFIG.RACE_COUNT, resolvers.length)));
+}
+
+async function raceResolvers(nodes, packet, expectedID) {
+  const controllers = nodes.map(() => new AbortController());
+
+  try {
+    const attempts = nodes.map((node, index) => relay(node, packet, expectedID, controllers[index].signal));
+    const winner = await Promise.any(attempts);
+
+    for (const controller of controllers) {
+      controller.abort('winner-selected');
+    }
+
+    return winner;
+  } finally {
+    for (const controller of controllers) {
+      controller.abort('race-finished');
+    }
+  }
+}
+
+async function relay(node, packet, expectedID, signal) {
+  const started = Date.now();
+  const timeoutController = new AbortController();
+  const timeout = setTimeout(() => timeoutController.abort('timeout'), CONFIG.UPSTREAM_TIMEOUT_MS);
+  const combinedSignal = anySignal([signal, timeoutController.signal]);
+
+  try {
     const res = await fetch(node.url, {
       method: 'POST',
-      headers: { 'content-type': 'application/dns-message', 'accept': 'application/dns-message' },
-      body: packet
+      headers: {
+        accept: 'application/dns-message',
+        'content-type': 'application/dns-message'
+      },
+      body: packet,
+      signal: combinedSignal
     });
-    if (!res.ok) { node.score -= 20; throw 0; }
-    node.score = Math.min(100, node.score + 1);
-    return { body: await res.arrayBuffer(), t: Date.now() - start };
-  },
 
-  async hash(buf) {
-    const h = await crypto.subtle.digest('SHA-1', buf);
-    return Array.from(new Uint8Array(h)).map(x => x.toString(16).padStart(2, '0')).join('');
-  },
+    if (!res.ok) {
+      penalize(node, CONFIG.SCORE_FAILURE_DELTA, `HTTP ${res.status}`);
+      throw new Error(`Upstream HTTP ${res.status}`);
+    }
 
-  renderUI(host) {
-    const endpoint = `https://${host}/dns-query`;
-    return new Response(`<!DOCTYPE html>
+    const body = await res.arrayBuffer();
+    const validation = validateDNSResponse(body, expectedID);
+
+    if (!validation.ok) {
+      penalize(node, CONFIG.SCORE_FAILURE_DELTA, validation.error);
+      throw new Error(validation.error);
+    }
+
+    const latencyMs = Date.now() - started;
+    reward(node, latencyMs);
+
+    return {
+      url: node.url,
+      body,
+      latencyMs
+    };
+  } catch (err) {
+    const message = String(err && err.message ? err.message : err);
+
+    if (message.includes('abort') || message.includes('timeout') || timeoutController.signal.aborted) {
+      node.timeout += 1;
+      penalize(node, CONFIG.SCORE_TIMEOUT_DELTA, 'timeout');
+    } else {
+      penalize(node, CONFIG.SCORE_FAILURE_DELTA, message);
+    }
+
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function validateDNSResponse(responseBuffer, expectedID) {
+  const bytes = new Uint8Array(responseBuffer);
+
+  if (bytes.length < 12) return { ok: false, error: 'Upstream returned short DNS response' };
+
+  const id = (bytes[0] << 8) | bytes[1];
+  const flags = (bytes[2] << 8) | bytes[3];
+
+  if (id !== expectedID) return { ok: false, error: 'Upstream response ID mismatch' };
+  if ((flags & 0x8000) === 0) return { ok: false, error: 'Upstream returned a DNS query, not response' };
+
+  return { ok: true };
+}
+
+function anySignal(signals) {
+  const controller = new AbortController();
+
+  function abortFrom(signal) {
+    if (!controller.signal.aborted) {
+      controller.abort(signal.reason || 'aborted');
+    }
+  }
+
+  for (const signal of signals) {
+    if (!signal) continue;
+    if (signal.aborted) {
+      abortFrom(signal);
+      break;
+    }
+    signal.addEventListener('abort', () => abortFrom(signal), { once: true });
+  }
+
+  return controller.signal;
+}
+
+function reward(node, latencyMs) {
+  node.ok += 1;
+  node.lastLatencyMs = latencyMs;
+  node.lastError = null;
+  node.score = clamp(node.score + CONFIG.SCORE_SUCCESS_DELTA, CONFIG.SCORE_MIN, CONFIG.SCORE_MAX);
+}
+
+function penalize(node, amount, error) {
+  node.fail += 1;
+  node.lastError = String(error || 'unknown').slice(0, 80);
+  node.score = clamp(node.score - amount, CONFIG.SCORE_MIN, CONFIG.SCORE_MAX);
+}
+
+async function makeCacheKey(profile, questionKey) {
+  const input = `${profile}|${questionKey}`;
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+function getCache(key) {
+  const item = APP_STATE.cache.get(key);
+  if (!item) return null;
+
+  if (Date.now() > item.expiresAt) {
+    APP_STATE.cache.delete(key);
+    return null;
+  }
+
+  // Simple LRU behavior: refresh insertion order on hit.
+  APP_STATE.cache.delete(key);
+  APP_STATE.cache.set(key, item);
+  return item;
+}
+
+function setCache(key, body, ttlSeconds) {
+  APP_STATE.cache.set(key, {
+    body,
+    expiresAt: Date.now() + ttlSeconds * 1000
+  });
+
+  trimMap(APP_STATE.cache, CONFIG.MAX_CACHE_ENTRIES);
+}
+
+function checkSpam(ip) {
+  const now = Date.now();
+  const current = APP_STATE.throttle.get(ip);
+  let stats = current || { count: 0, resetAt: now + CONFIG.RATE_LIMIT_WINDOW_MS };
+
+  if (now > stats.resetAt) {
+    stats = { count: 0, resetAt: now + CONFIG.RATE_LIMIT_WINDOW_MS };
+  }
+
+  stats.count += 1;
+  APP_STATE.throttle.set(ip, stats);
+
+  trimMap(APP_STATE.throttle, CONFIG.MAX_THROTTLE_ENTRIES);
+
+  return stats.count > CONFIG.RATE_LIMIT_MAX_REQUESTS;
+}
+
+function trimMap(map, maxEntries) {
+  while (map.size > maxEntries) {
+    const oldestKey = map.keys().next().value;
+    map.delete(oldestKey);
+  }
+}
+
+function getClientIP(req) {
+  return req.headers.get('CF-Connecting-IP')
+    || req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || 'unknown';
+}
+
+function getHealthSnapshot() {
+  const profiles = {};
+
+  for (const [profile, nodes] of Object.entries(APP_STATE.resolversByProfile)) {
+    profiles[profile] = nodes.map((node) => ({
+      url: node.url,
+      score: node.score,
+      ok: node.ok,
+      fail: node.fail,
+      timeout: node.timeout,
+      lastLatencyMs: node.lastLatencyMs,
+      lastError: node.lastError
+    }));
+  }
+
+  return {
+    version: VERSION,
+    cacheEntries: APP_STATE.cache.size,
+    throttleEntries: APP_STATE.throttle.size,
+    profiles
+  };
+}
+
+function dnsResponse(body, extraHeaders = {}) {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'content-type': 'application/dns-message',
+      'cache-control': 'no-store',
+      ...extraHeaders
+    }
+  });
+}
+
+function textResponse(text, status = 200, headers = {}) {
+  return new Response(text, {
+    status,
+    headers: {
+      'content-type': 'text/plain; charset=utf-8',
+      ...headers
+    }
+  });
+}
+
+function jsonResponse(data, status = 200, headers = {}) {
+  return new Response(JSON.stringify(data, null, 2), {
+    status,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      ...headers
+    }
+  });
+}
+
+function httpError(message, status) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function sanitizeHeaderValue(value) {
+  return String(value).replace(/[\r\n]/g, '').slice(0, 200);
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch]));
+}
+
+function renderUI(host) {
+  const safeHost = escapeHtml(host);
+  const endpoint = `https://${safeHost}${CONFIG.DNS_PATH}`;
+
+  return new Response(`<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -222,9 +795,9 @@ export default {
         <!-- TUTORIAL SECTION -->
         <div class="mb-16">
             <nav id="tutorialNav" class="flex flex-wrap gap-3 justify-center mb-8">
-                <button onclick="tab('chrome')" id="btnC" class="btn-tab px-6 py-3 rounded-2xl text-[11px] font-black uppercase text-slate-400 nav-active">Chrome / Brave / Edge</button>
-                <button onclick="tab('firefox')" id="btnF" class="btn-tab px-6 py-3 rounded-2xl text-[11px] font-black uppercase text-slate-400">Firefox</button>
-                <button onclick="tab('mobile')" id="btnM" class="btn-tab px-6 py-3 rounded-2xl text-[11px] font-black uppercase text-slate-400">Android / iOS</button>
+                <button onclick="tab('chrome', this)" id="btnC" class="btn-tab px-6 py-3 rounded-2xl text-[11px] font-black uppercase text-slate-400 nav-active">Chrome / Brave / Edge</button>
+                <button onclick="tab('firefox', this)" id="btnF" class="btn-tab px-6 py-3 rounded-2xl text-[11px] font-black uppercase text-slate-400">Firefox</button>
+                <button onclick="tab('mobile', this)" id="btnM" class="btn-tab px-6 py-3 rounded-2xl text-[11px] font-black uppercase text-slate-400">Android / iOS</button>
             </nav>
 
             <section id="docPanels" class="min-h-[300px]">
@@ -247,7 +820,7 @@ export default {
                         <p>1. Open Firefox <code>Settings</code> and scroll down to <b>Network Settings</b>.</p>
                         <p>2. Click <b>Settings...</b> and check <b>"Enable DNS over HTTPS"</b> at the bottom.</p>
                         <p>3. Set provider to <b>Custom</b> and paste your unique URL.</p>
-                        <p>4. Select <b>"Max Protection"</b> for complete censorship bypass.</p>
+                        <p>4. Select <b>"Max Protection"</b> for stronger browser-level DNS privacy.</p>
                     </div>
                 </div>
 
@@ -257,7 +830,7 @@ export default {
                     <p class="text-slate-500 text-sm mb-6 italic" id="mD">This resolver is a DoH (HTTPS-based) service, which modern phones handle differently than system-wide settings.</p>
                     <div class="space-y-6 text-slate-400 text-sm" id="mL">
                         <p><b>A) For Mobile Browsers:</b> Open Browser settings (Chrome/Firefox/Edge) on your phone and follow the desktop steps. <b>This is the best and fastest way.</b></p>
-                        <p><b>B) For System-wide Apps:</b> We highly recommend using <b>RethinkDNS</b> or <b>Intra</b> apps. In these apps, set the DNS type to DoH and provide your unique Neptune link.</p>
+                        <p><b>B) For System-wide Apps:</b> We recommend using <b>RethinkDNS</b> or <b>Intra</b> apps. In these apps, set the DNS type to DoH and provide your unique Neptune link.</p>
                     </div>
                 </div>
             </section>
@@ -270,19 +843,19 @@ export default {
             </h4>
             <div class="space-y-6 text-[13px] md:text-[14px] text-slate-400 leading-loose" id="whyT">
                 <p>Most operating systems (Windows settings, Android "Private DNS", or Apple Profiles) natively expect <b>DNS-over-TLS (DoT)</b> which runs on Port 853. Since this worker is built on <b>Cloudflare Edge (Serverless)</b>, it strictly provides <b>DNS-over-HTTPS (DoH)</b> running on Port 443.</p>
-                <p><b>The Issue:</b> You <u>cannot</u> paste an <code>https://</code> link into the native Windows or Android DNS settings. It will result in an "Invalid Hostname" error. Systems there expect a simple domain, but this service requires the full path for HTTPS resolution.</p>
-                <p><b>The Solution:</b> Browsers (Chrome, Edge, Firefox) have their own independent DOH clients. They are 100% compatible with Port 443 workers and provide far superior stability, encryption, and speed than standard OS DNS profiles. By setting this in the browser, your queries travel hidden within standard HTTPS web traffic, making them almost impossible for ISPs to intercept.</p>
+                <p><b>The Issue:</b> You <u>cannot</u> paste an <code>https://</code> link into many native DNS settings. It will usually result in an "Invalid Hostname" error. Systems there expect a simple domain, but this service requires the full path for HTTPS resolution.</p>
+                <p><b>The Solution:</b> Browsers (Chrome, Edge, Firefox) have their own independent DoH clients. They are compatible with Port 443 workers and provide browser-level encrypted DNS. DoH encrypts DNS queries between your browser and this endpoint, but it does not hide destination IPs or guarantee bypass on every network.</p>
             </div>
         </div>
 
         <footer class="mt-32 pb-20 border-t border-slate-900 flex flex-col md:flex-row justify-between items-center opacity-60 gap-8">
             <div>
-                <span class="text-[10px] font-black tracking-widest text-cyan-600 block mb-1">DOH CORE: NEPTUNE-V2.1.1</span>
+                <span class="text-[10px] font-black tracking-widest text-cyan-600 block mb-1">DOH CORE: NEPTUNE-V${VERSION}</span>
                 <p class="text-[9px] uppercase">Built with Edge-Computing Infrastructure</p>
             </div>
             <div class="flex gap-10 font-bold text-[10px] uppercase">
-                <a href="https://x.com/the_azzi" class="hover:text-cyan-400" target="_blank">Twitter (X)</a>
-                <a href="https://github.com/TheGreatAzizi/Secure-DNS-over-HTTPS-Cloudflare-Worker" class="hover:text-cyan-400" target="_blank">GitHub</a>
+                <a href="https://x.com/the_azzi" class="hover:text-cyan-400" target="_blank" rel="noreferrer">Twitter (X)</a>
+                <a href="https://github.com/TheGreatAzizi/Secure-DNS-over-HTTPS-Cloudflare-Worker" class="hover:text-cyan-400" target="_blank" rel="noreferrer">GitHub</a>
             </div>
         </footer>
     </div>
@@ -291,35 +864,35 @@ export default {
         const I18N = {
             en: {
                 main: 'Secure DNS over HTTPS', sub: 'Edge Resolve Network • 8-Way Concurrent Racing',
-                urlL: 'Endpoint URL', cpT: 'COPY ENDPOINT', tabC: 'Chrome / Brave / Edge', tabF: 'Firefox', tabM: 'Android / iOS',
+                urlL: 'Endpoint URL', cpT: 'COPY ENDPOINT', copied: 'LINK CAPTURED!', tabC: 'Chrome / Brave / Edge', tabF: 'Firefox', tabM: 'Android / iOS',
                 cH: 'Chromium Browser Settings', cL: '<li>1. Open Browser <b>Settings</b> and find <b>Privacy & Security</b>.</li><li>2. Scroll to <b>"Use Secure DNS"</b>.</li><li>3. Select <b>"With Custom"</b>.</li><li>4. Paste your DoH endpoint URL provided above.</li>',
-                fH: 'Firefox Network Options', fL: '<li>1. In Firefox <code>Settings</code>, search for "DNS over HTTPS".</li><li>2. Select <b>Custom</b> from the providers dropdown.</li><li>3. Paste the Neptune DOH link and hit OK.</li>',
-                mH: 'Mobile Setup Strategy', mD: 'Smartphones prioritize DOT (Port 853). To use this Worker (Port 443) effectively:',
-                mL: '<li><b>In Browsers:</b> Setting it directly in Chrome or Firefox for Mobile is the easiest path.</li><li><b>For Apps:</b> Use <b>Intra</b> or <b>RethinkDNS</b> apps and set DOH server to this link.</li>',
+                fH: 'Firefox Network Options', fL: '<li>1. In Firefox <code>Settings</code>, search for "DNS over HTTPS".</li><li>2. Select <b>Custom</b> from the providers dropdown.</li><li>3. Paste the Neptune DoH link and save.</li>',
+                mH: 'Mobile Setup Strategy', mD: 'Smartphones often prioritize DoT hostnames in system settings. To use this Worker DoH endpoint:',
+                mL: '<li><b>In Browsers:</b> Setting it directly in Chrome or Firefox for Mobile is the easiest path.</li><li><b>For Apps:</b> Use <b>Intra</b> or <b>RethinkDNS</b> apps and set DoH server to this link.</li>',
                 whyH: 'Why Browser-Level ONLY? (The Technical Reality)',
-                whyT: '<p>Operating systems like Windows/Android natively expect <b>DOT (Port 853)</b> and only take a hostname (not a full link). Workers on Cloudflare run on <b>HTTPS (Port 443)</b>, making them incompatible with native system-wide settings.</p><p><b>Result:</b> Modern browsers include their own DOH engine which works perfectly on Port 443. This is the most stealthy and reliable way to encrypt your DNS without facing native system errors.</p>',
+                whyT: '<p>Operating systems like Windows/Android often expect <b>DoT (Port 853)</b> or native resolver formats and may not accept a full <code>https://</code> DoH URL. Workers on Cloudflare run on <b>HTTPS (Port 443)</b>.</p><p><b>Result:</b> Modern browsers include their own DoH engine which works well on Port 443. DoH encrypts DNS queries between your browser and this Worker, but it does not hide destination IPs or guarantee bypass on every network.</p>',
                 curL: 'ENGLISH'
             },
             fa: {
                 main: 'سرویس امن DNS بر روی HTTPS', sub: 'پایدارترین پاسخگویی با مسابقه موازی بین ۸ سرور برتر جهان',
-                urlL: 'آدرس مستقیم سرور شما (DoH)', cpT: 'کپی آدرس هوشمند', tabC: 'خانواده کروم', tabF: 'فایرفاکس', tabM: 'اندروید و آیفون',
+                urlL: 'آدرس مستقیم سرور شما (DoH)', cpT: 'کپی آدرس هوشمند', copied: 'لینک کپی شد!', tabC: 'خانواده کروم', tabF: 'فایرفاکس', tabM: 'اندروید و آیفون',
                 cH: 'تنظیمات در کروم، اج و بریو', cL: '<li>۱. در تنظیمات مرورگر کلمه DNS را جستجو کنید.</li><li>۲. وارد بخش Security شوید و Use Secure DNS را پیدا کنید.</li><li>۳. آن را روی حالت <b>With Custom</b> قرار دهید.</li><li>۴. آدرس کپی شده از بالای این صفحه را در کادر قرار دهید.</li>',
-                fH: 'تنظیمات در مرورگر فایرفاکس', fL: '<li>۱. در فایرفاکس وارد Settings شوید و Network را باز کنید.</li><li>۲. تیک Enable DNS over HTTPS را بزنید.</li><li>۳. آن را روی حالت Custom گذاشته و لینک اختصاصی خود را وارد کنید.</li>',
-                mH: 'استراتژی راه‌اندازی در موبایل', mD: 'گوشی‌ها معمولاً به دنبال پروتکل DOT هستند؛ برای استفاده از سرویس DOH ما بر روی کل گوشی:',
-                mL: '<li><b>داخل مرورگر:</b> بهترین راه تنظیم مستقیم در بخش Secure DNS خودِ کروم یا فایرفاکسِ گوشی است.</li><li><b>برای تمام برنامه‌ها:</b> از اپلیکیشن‌های <b>RethinkDNS</b> یا <b>Intra</b> استفاده کنید و لینک DOH را در آن‌ها ست کنید.</li>',
-                whyH: 'چرا نمی‌توان در تنظیمات سیستمی (اندروید/ویندوز) ست کرد؟',
-                whyT: '<p>تنظیمات سیستمی ویندوز یا Private DNS اندروید، فقط پروتکل <b>DOT (پورت ۸۵۳)</b> را قبول می‌کنند و اجازه نمی‌دهند آدرس‌هایی که با <code>https://</code> شروع می‌شوند را وارد کنید.</p><p><b>راه حل:</b> مرورگرهای مدرن (مثل کروم و اج) یک موتورِ داخلی برای <b>DoH</b> دارند که دقیقاً روی پورت وب (۴۴۳) کار می‌کند. با تنظیم آن در مرورگر، ترافیک شما مخفی مانده و هیچ خطایی دریافت نمی‌کنید.</p>',
+                fH: 'تنظیمات در مرورگر فایرفاکس', fL: '<li>۱. در فایرفاکس وارد Settings شوید و DNS over HTTPS را جستجو کنید.</li><li>۲. آن را روی حالت Custom بگذارید.</li><li>۳. لینک اختصاصی خود را وارد و ذخیره کنید.</li>',
+                mH: 'استراتژی راه‌اندازی در موبایل', mD: 'گوشی‌ها معمولاً در تنظیمات سیستمی به دنبال hostname برای DoT هستند؛ برای استفاده از سرویس DoH ما:',
+                mL: '<li><b>داخل مرورگر:</b> بهترین راه تنظیم مستقیم در بخش Secure DNS خودِ کروم یا فایرفاکسِ گوشی است.</li><li><b>برای تمام برنامه‌ها:</b> از اپلیکیشن‌های <b>RethinkDNS</b> یا <b>Intra</b> استفاده کنید و لینک DoH را در آن‌ها ست کنید.</li>',
+                whyH: 'چرا نمی‌توان در خیلی از تنظیمات سیستمی ست کرد؟',
+                whyT: '<p>بسیاری از تنظیمات سیستمی ویندوز یا Private DNS اندروید، معمولاً <b>DoT (پورت ۸۵۳)</b> یا فرمت hostname می‌خواهند و اجازه نمی‌دهند آدرس کامل <code>https://</code> وارد کنید. این Worker روی <b>HTTPS (پورت ۴۴۳)</b> اجرا می‌شود.</p><p><b>راه حل:</b> مرورگرهای مدرن مثل کروم، اج و فایرفاکس موتور داخلی DoH دارند و با این Endpoint سازگارند. DoH درخواست‌های DNS بین مرورگر و این Worker را رمزنگاری می‌کند، اما IP مقصد را مخفی نمی‌کند و تضمین عبور در همه شبکه‌ها نیست.</p>',
                 curL: 'فارسی (FA)'
             },
             zh: {
-                main: 'Secure DoH 安全加密中心', sub: '基于边缘节点全球竞速协议 v2.1.1',
-                urlL: 'DoH 配置终端', cpT: '复制配置地址', tabC: 'Chromium 引擎', tabF: 'Firefox 火狐', tabM: '安卓与 iOS',
+                main: 'Secure DoH 安全加密中心', sub: '基于边缘节点全球竞速协议',
+                urlL: 'DoH 配置终端', cpT: '复制配置地址', copied: '已复制!', tabC: 'Chromium 引擎', tabF: 'Firefox 火狐', tabM: '安卓与 iOS',
                 cH: 'Chromium 浏览器设置', cL: '<li>1. 进入浏览器“设置”，搜索“安全 DNS”。</li><li>2. 将服务提供商设置为“自定义 (Custom)”。</li><li>3. 粘贴本页面的 Neptune 链接，然后重启浏览器生效。</li>',
-                fH: '火狐浏览器配置指南', fL: '<li>1. 在火狐“设置”中搜索 DNS 选项。</li><li>2. 在 HTTPS 模式下勾选“增强模式”并选择自定义提供商。</li><li>3. 输入 DoH 服务器地址并确认保存。</li>',
-                mH: '移动端解析说明', mD: '移动操作系统通常默认 Port 853 协议；若要在系统中使用此 DOH 服务器:',
+                fH: '火狐浏览器配置指南', fL: '<li>1. 在火狐“设置”中搜索 DNS over HTTPS。</li><li>2. 选择自定义提供商。</li><li>3. 输入 DoH 服务器地址并确认保存。</li>',
+                mH: '移动端解析说明', mD: '移动操作系统通常默认系统级 DoT 格式；若要使用此 DoH 服务器:',
                 mL: '<li><b>浏览器设置:</b> 直接在安卓或苹果手机的浏览器（Chrome/Firefox）内按上述桌面步骤配置即可。</li><li><b>全系统生效:</b> 建议安装 <b>RethinkDNS</b> 或 <b>Intra</b> App，并在软件中设置本页面地址。</li>',
-                whyH: '为什么只能在浏览器配置? (技术架构说明)',
-                whyT: '<p>Windows 或安卓系统的 Private DNS 设置项原生仅支持 <b>DOT (853 端口)</b>，而不允许输入带 HTTPS 前缀的链接。本项目基于云原生 <b>Port 443</b> 环境构建。</p><p><b>解析建议:</b> 在浏览器端配置可以完美绕过系统级限制。浏览器独立自带的 DOH 解析器稳定性远高于原生操作系统的证书配置方案。</p>',
+                whyH: '为什么通常建议在浏览器配置? (技术架构说明)',
+                whyT: '<p>Windows 或安卓系统的 Private DNS 设置项通常需要 <b>DoT / 853 端口</b> 或主机名格式，而不一定接受完整 HTTPS URL。本项目基于 <b>Port 443</b> 的 Cloudflare Worker 环境构建。</p><p><b>建议:</b> 浏览器自带独立 DoH 解析器，可直接使用此 Endpoint。DoH 会加密浏览器与此 Worker 之间的 DNS 查询，但不会隐藏目标 IP，也不能保证在所有网络中绕过限制。</p>',
                 curL: '简体中文'
             }
         };
@@ -348,23 +921,39 @@ export default {
             document.getElementById('langMenu').classList.add('hidden');
         }
 
-        function tab(id) {
-            document.querySelectorAll('.panel-active').forEach(p => {p.classList.remove('panel-active'); p.classList.add('panel');});
+        function tab(id, el) {
+            document.querySelectorAll('.panel-active').forEach(p => { p.classList.remove('panel-active'); p.classList.add('panel'); });
             document.querySelectorAll('.btn-tab').forEach(b => b.classList.remove('nav-active'));
             document.getElementById(id).classList.add('panel-active');
             document.getElementById(id).classList.remove('panel');
-            event.target.classList.add('nav-active');
+            el.classList.add('nav-active');
         }
 
-        function copyURL() {
-            const el = document.getElementById("linkInp");
-            el.select(); document.execCommand("copy");
-            alert('LINK CAPTURED!');
+        async function copyURL() {
+            const el = document.getElementById('linkInp');
+            const lang = localStorage.getItem('doc_v6') || 'en';
+            const msg = I18N[lang]?.copied || 'LINK CAPTURED!';
+
+            try {
+                await navigator.clipboard.writeText(el.value);
+            } catch (_) {
+                el.select();
+                document.execCommand('copy');
+            }
+
+            alert(msg);
         }
 
         window.onload = () => changeLang(localStorage.getItem('doc_v6') || 'en');
     </script>
 </body>
-</html>`, { headers: { 'content-type': 'text/html' } });
-  }
-};
+</html>`, {
+    status: 200,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+      'referrer-policy': 'no-referrer'
+    }
+  });
+}
