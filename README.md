@@ -1,92 +1,253 @@
-# 🛡️ Secure DNS over HTTPS (DoH) V2.1.1
+# 🛡️ Secure DNS over HTTPS (DoH) V2.2.0
 
-### **The Most Reliable Parallel-Racing DNS Resolver on Cloudflare Workers**
+### **A Cloudflare Worker DoH Resolver with Full-Pool Mode, Resolver Profiles, Safer Validation, and Parallel Racing**
 
 [![Cloudflare Workers](https://img.shields.io/badge/Platform-Cloudflare_Workers-F38020?logo=cloudflare)](https://workers.cloudflare.com)
-[![Architecture](https://img.shields.io/badge/Architecture-Parallel_Racing_v6.0-emerald)](https://github.com/TheGreatAzizi/Secure-DNS-over-HTTPS-Cloudflare-Worker)
-[![Security](https://img.shields.io/badge/Privacy-Zero_Logging-teal)](https://x.com/the_azzi)
+[![Architecture](https://img.shields.io/badge/Architecture-Parallel_Racing_v7.0-emerald)](https://github.com/TheGreatAzizi/Secure-DNS-over-HTTPS-Cloudflare-Worker)
+[![Security](https://img.shields.io/badge/Privacy-DNS_Encryption-teal)](https://x.com/the_azzi)
 [![Interface](https://img.shields.io/badge/UI-English_Persian_Chinese-0ea5e9)](https://github.com/TheGreatAzizi/Secure-DNS-over-HTTPS-Cloudflare-Worker)
 
 [![中文](https://img.shields.io/badge/Readme-中文-red)](./README-Zh.md)
 [![Farsi](https://img.shields.io/badge/Readme-Farsi-green)](./README-Fa.md)
 ![Repository Views](https://komarev.com/ghpvc/?username=TheGreatAzizi&repo=Secure-DNS-over-HTTPS-Cloudflare-Worker&color=red)
 
-A high-performance Cloudflare Worker providing a **custom DoH endpoint** with a built-in interactive dashboard. Built with a unique **8-Way Edge Racing Engine**, this service queries over 190 global DNS nodes simultaneously to return the fastest verified result.
+A high-performance Cloudflare Worker that provides a **custom DNS-over-HTTPS endpoint** with a built-in multilingual dashboard. Version **2.2.0** keeps the original visual design while upgrading the backend with safer request validation, bounded memory usage, upstream timeouts, resolver scoring, and a new **default full-pool mode**.
 
-**Demo:** [dns.theazizi.ir](https://dns.theazizi.ir) | **Endpoint:** `https://dns.theazizi.ir/dns-query`
-
-> [!NOTE]
-> ### ✨ New Features in V2.1.1
-> - Over 130 new Doh servers added to the backend - Update Worker.js
+**Demo:** [dns.theazizi.ir](https://dns.theazizi.ir)  
+**Default Endpoint:** `https://dns.theazizi.ir/dns-query`
 
 ---
 
-## ⚠ Important Notices (Especially for Users in Iran)
+## ✨ What's New in V2.2.0
 
-### 1. Worker Subdomains are Filtered
-The default Cloudflare domain (`*.workers.dev`) is filtered inside Iran. You **MUST** attach the Worker to a **Custom Domain** (e.g., `dns.yourdomain.com`). In the Cloudflare DNS dashboard, ensure the **Orange Cloud (Proxied)** is active.
+This README is updated for Worker **VERSION 2.2.0**.
 
-### 2. No IP Masking (DNS Only)
-This tool **only encrypts your DNS lookups**. Your Public IP remains the same. External platforms (like Twitter/X) will still detect your Iranian location. For full IP masking, pair this with a proxy or VPN.
+Key backend changes:
+- `DEFAULT_PROFILE: 'all'`
+- `/dns-query` uses the full resolver pool by default
+- Optional profiles: `default`, `security`, `family`, `adblock`, `dns64`
+- Safe GET base64url decoding
+- Method/content-type/body-size validation
+- DNS packet validation: exactly one DNS question is required
+- Per-upstream timeout with `AbortController`
+- `RACE_COUNT: 4`
+- Bounded in-memory cache and throttle maps
+- SHA-256 cache keys
+- Safer HTML escaping for host-derived endpoint
+- Cleaner UI JS with Clipboard API fallback
+- More accurate privacy/security wording
 
-### 3. DNS-Level Bypassing Only
-This service effectively bypasses DNS Poisoning (G-FW). It cannot bypass IP-level blocking, SNI filtering, or Deep Packet Inspection (DPI) on its own.
 
 ---
 
-## 🚀 Advanced Architecture: v2.1.1 Racing Engine
+## ⚠ Important Notices
 
-Standard DoH can sometimes be slow due to single-provider congestion. Our Pro engine uses a superior approach:
-- **8-Track Concurrency:** For every query, the worker sends requests to 8 of the best healthy global providers at the exact same time.
-- **Winner Takes All:** The fastest response is returned to the user, ensuring the absolute lowest latency (sub-30ms edge resolution).
-- **Self-Healing Scores:** Providers are continuously scored. If a node starts failing or lagging due to ISP interference, its weight is automatically lowered.
+### 1. Cloudflare Worker Subdomains May Be Filtered
+
+The default Cloudflare Worker domain (`*.workers.dev`) may be filtered or unreliable on some networks. For best results, attach the Worker to a **custom domain**, for example:
+
+```txt
+dns.yourdomain.com
+```
+
+In Cloudflare DNS, make sure the domain is **Proxied** with the orange cloud enabled.
+
+### 2. DNS Only, Not a VPN
+
+This service **encrypts DNS queries** between the client and your Worker endpoint. It does **not** change your public IP address and does **not** hide the destination IPs you connect to.
+
+For full traffic tunneling or IP masking, use it together with a VPN, proxy, v2rayN, Hiddify, Nekoray, Clash, or another tunneling tool.
+
+### 3. What It Can and Cannot Bypass
+
+This service can help with DNS poisoning, DNS hijacking, ISP DNS manipulation, and DNS-level blocking.
+
+It does not guarantee bypass for IP blocking, SNI filtering, TLS/HTTPS blocking, QUIC blocking, DPI, or network-level throttling.
+
+---
+
+## 🚀 Architecture: Parallel Racing Engine
+
+Traditional DoH services usually rely on one resolver. If that provider is slow, blocked, or unreliable, the whole service becomes slow. This Worker uses a racing engine:
+
+- **Resolver Racing:** For every DNS query, the Worker selects the best-scoring upstream resolvers.
+- **Concurrent Requests:** It races several upstreams at the same time.
+- **Fastest Valid Response Wins:** The first valid DNS response is returned to the user.
+- **Self-Healing Scores:** Successful resolvers gain score. Failed or timed-out resolvers lose score.
+- **Timeout Protection:** Slow upstreams are aborted with `AbortController`.
+- **Safe Cache:** Frequently requested records can be served from bounded in-memory cache.
+
+Important constants:
+
+```js
+DEFAULT_PROFILE: 'all'
+CACHE_TTL_SECONDS: 300
+MAX_CACHE_ENTRIES: 5000
+MAX_THROTTLE_ENTRIES: 20000
+MAX_DNS_MESSAGE_BYTES: 4096
+RATE_LIMIT_MAX_REQUESTS: 250
+UPSTREAM_TIMEOUT_MS: 1800
+RACE_COUNT: 4
+```
+
+---
+
+## 🌐 Endpoints and Profiles
+
+### Default Full-Pool Endpoint
+
+```txt
+https://dns.theazizi.ir/dns-query
+```
+
+The default endpoint uses:
+
+```js
+DEFAULT_PROFILE: 'all'
+```
+
+This means `/dns-query` uses the full resolver pool without requiring a query parameter.
+
+### Optional Profile Endpoints
+
+```txt
+https://dns.theazizi.ir/dns-query?profile=default
+https://dns.theazizi.ir/dns-query?profile=security
+https://dns.theazizi.ir/dns-query?profile=family
+https://dns.theazizi.ir/dns-query?profile=adblock
+https://dns.theazizi.ir/dns-query?profile=dns64
+```
+
+| Profile | Purpose |
+|---|---|
+| `all` | Full mixed resolver pool. This is the default mode. |
+| `default` | Balanced public resolvers without family/adblock/DNS64 policy mixing. |
+| `security` | Security-focused resolvers with malware/threat filtering. |
+| `family` | Family-safe filtering resolvers. |
+| `adblock` | Ad/tracker blocking resolvers. |
+| `dns64` | DNS64 resolvers for IPv6-only/NAT64 networks. |
+
+> [!WARNING]
+> The default `all` profile intentionally mixes different resolver policies. This maximizes coverage, but a result may vary when upstream providers use different filtering rules. Use a specific profile when predictable policy behavior matters.
 
 ---
 
 ## 📋 Features
 
-- **✅ Edge Caching:** Frequent records (like Google/Spotify) are stored in shared RAM for instant results.
-- **✅ Multilingual Support:** Professional instructional UI available in English, Persian (FA), and Chinese (ZH).
-- **✅ Rate-Limiting:** Automated 250 req/min per IP to prevent flood-based instability.
-- **✅ Stealth Mode:** Since the query travels through **Port 443 (HTTPS)**, it looks like regular encrypted web traffic.
+- **✅ Cloudflare Worker Native:** Runs entirely on Cloudflare Workers.
+- **✅ Full Resolver Pool:** Includes a large list of DoH upstreams.
+- **✅ Default General Query:** `/dns-query` uses the complete pool by default.
+- **✅ Optional Separated Profiles:** Choose policy-specific resolver groups when needed.
+- **✅ GET and POST DoH:** Supports both standard DoH request methods.
+- **✅ Safer GET base64url Handling:** Rejects invalid GET query data.
+- **✅ DNS Query Validation:** Validates message size, query/response flag, QDCOUNT, and question format.
+- **✅ Upstream Validation:** Verifies DNS response ID and response flag.
+- **✅ Resolver Scoring:** Rewards healthy resolvers and penalizes failed or timed-out ones.
+- **✅ Bounded Cache and Throttle Maps:** Reduces memory growth risk.
+- **✅ Rate Limiting:** Basic 250 requests/min per IP.
+- **✅ Multilingual Dashboard:** English, Persian, and Chinese UI.
+- **✅ Health Endpoint:** `/health` returns resolver scores and runtime state.
 
 ---
 
-## 📖 How to Deploy
+## 📖 Deployment
 
-1.  **Deploy Worker:** Create a new Worker on Cloudflare and paste the `worker.js` code.
-2.  **Bind Domain:** Under `Settings -> Domains & Routes`, add your custom subdomain.
-3.  **Proxy:** Verify the subdomain in Cloudflare DNS settings has the orange proxy cloud enabled.
+1. Create a new Cloudflare Worker.
+2. Paste the `worker.js` code.
+3. Deploy the Worker.
+4. Add a custom domain from `Settings -> Domains & Routes`.
+5. In Cloudflare DNS, make sure the domain is **Proxied**.
+6. Use your DoH endpoint:
 
----
-
-## 🔧 Setup Guide: Why Browser-Level is Best
-
-### 🛑 THE LIMITATION: Native System Settings
-Modern Operating Systems (Windows 11 settings, Android "Private DNS", or iOS Profiles) natively prioritize **DNS-over-TLS (DoT)** running on **Port 853**. 
-*   Because Cloudflare Workers run on **Port 443**, system settings often reject an `https://` link as an "Invalid Hostname." 
-*   **Result:** You cannot natively paste this URL into the Windows or Android native settings directly without receiving errors.
-
-### 🏆 THE SOLUTION: Browser Integration (Recommended ⭐)
-Web Browsers have independent DoH engines that support Port 443 perfectly. Setting this up at the browser level provides the highest stealth and reliability.
-
-#### 🌐 Google Chrome / Chromium / Edge / Brave
-1.  Go to `Settings` -> `Privacy & Security` -> `Security`.
-2.  Enable **"Use Secure DNS"**.
-3.  Choose **"Custom"** and paste your Neptune DoH URL.
-
-#### 🦊 Mozilla Firefox
-1.  Go to `Settings` -> `Privacy & Security`.
-2.  Under `DNS over HTTPS`, select **Max Protection**.
-3.  Set "Choose Provider" to **Custom** and paste your URL.
-
-#### 📱 Mobile (Android / iOS)
-- **Safari:** Safari prioritizes native DOT. We recommend using the **Firefox Mobile** or **Brave** browser on your phone for full DOH support.
-- **Apps:** For system-wide use on Android, we suggest the **Intra** or **RethinkDNS** app. Use their "Custom DoH" field to add your link.
+```txt
+https://dns.yourdomain.com/dns-query
+```
 
 ---
 
-👤 Credits & Links
-Developer: TheGreatAzizi
+## 🔧 Setup Guide
 
-Twitter (X): [@the_azzi](https://x.com/the_azzi)
+### Chrome / Edge / Brave
+
+1. Go to `Settings -> Privacy and security -> Security`.
+2. Enable **Use Secure DNS**.
+3. Choose **Custom**.
+4. Paste your endpoint:
+
+```txt
+https://dns.yourdomain.com/dns-query
+```
+
+If the browser says the provider is invalid, test the endpoint with a DoH GET request. Some networks or browser validation flows may fail even when the Worker itself is healthy.
+
+### Firefox
+
+1. Open `Settings -> Privacy & Security`.
+2. Find **DNS over HTTPS**.
+3. Select **Max Protection** or **Custom**.
+4. Paste your DoH endpoint.
+
+### Android / iOS
+
+Native Android Private DNS expects **DoT**, not a full DoH URL. For this Worker, use a client that supports custom DoH:
+
+- Intra
+- RethinkDNS
+- Firefox Mobile
+- Brave Mobile
+
+### Windows
+
+Windows native DNS settings usually do not accept full DoH URLs like this Worker endpoint. Recommended options:
+
+- Browser-level Secure DNS
+- YogaDNS
+- dnscrypt-proxy
+- v2rayN/Xray DNS configuration
+- Any client that supports custom DoH URLs
+
+---
+
+## 🧪 Quick Test
+
+A healthy DoH GET request should return:
+
+```txt
+HTTP 200
+Content-Type: application/dns-message
+```
+
+The response may include headers such as:
+
+```txt
+x-cache: HIT / MISS
+x-profile: all
+x-winner: <upstream-url>
+x-winner-lat: <latency>
+```
+
+---
+
+## 🧩 Notes for YouTube and Similar Services
+
+YouTube depends on multiple domains, for example:
+
+```txt
+youtube.com
+www.youtube.com
+youtubei.googleapis.com
+youtube.googleapis.com
+googlevideo.com
+ytimg.com
+i.ytimg.com
+ggpht.com
+```
+
+If DNS queries resolve correctly but the website still does not load, the network is likely blocking more than DNS. In that case, use a proxy/VPN/TUN-based client for full traffic tunneling.
+
+---
+
+## 👤 Credits & Links
+
+Developer: **TheGreatAzizi**  
+Twitter/X: [@the_azzi](https://x.com/the_azzi)
