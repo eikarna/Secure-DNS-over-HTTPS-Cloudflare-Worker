@@ -1,93 +1,250 @@
-# 🛡️ Secure DNS over HTTPS (DoH) V2.1.1
+# 🛡️ Secure DNS over HTTPS (DoH) V2.2.0
 
-### **基于 Cloudflare Worker 的全自动全球并行竞赛解析服务**
+### **基于 Cloudflare Worker 的 DoH 解析服务：完整解析池、Profile、更加安全的验证与并行竞速**
 
 [![Cloudflare Workers](https://img.shields.io/badge/Platform-Cloudflare_Workers-F38020?logo=cloudflare)](https://workers.cloudflare.com)
-[![Architecture](https://img.shields.io/badge/Architecture-Parallel_Racing_v6.0-emerald)](https://github.com/TheGreatAzizi/Secure-DNS-over-HTTPS-Cloudflare-Worker)
-[![Security](https://img.shields.io/badge/Privacy-Zero_Logging-teal)](https://x.com/the_azzi)
+[![Architecture](https://img.shields.io/badge/Architecture-Parallel_Racing_v7.0-emerald)](https://github.com/TheGreatAzizi/Secure-DNS-over-HTTPS-Cloudflare-Worker)
+[![Security](https://img.shields.io/badge/Privacy-DNS_Encryption-teal)](https://x.com/the_azzi)
 [![Interface](https://img.shields.io/badge/UI-English_Persian_Chinese-0ea5e9)](https://github.com/TheGreatAzizi/Secure-DNS-over-HTTPS-Cloudflare-Worker)
 
 [![English](https://img.shields.io/badge/Readme-English-blue)](./README.md)
 [![Farsi](https://img.shields.io/badge/Readme-Farsi-green)](./README-Fa.md)
 ![Repository Views](https://komarev.com/ghpvc/?username=TheGreatAzizi&repo=Secure-DNS-over-HTTPS-Cloudflare-Worker&color=red)
 
-这是一个高性能的 Cloudflare Worker 解析器，通过独有的 **8 路径并行竞赛引擎 (8-Way Edge Racing)**，同时向全球 190 多个权威 DNS 节点发起请求，并瞬时返回最快且已验证的解析结果。它内置了交互式说明页面，旨在提升隐私、防止 DNS 投毒及绕过特定区域的域名限制。
+这是一个运行在 Cloudflare Worker 上的高性能 **DNS-over-HTTPS** 解析服务，并带有多语言配置页面。版本 **2.2.0** 保留了原来的视觉设计，同时升级了后端逻辑：更安全的请求验证、上游 timeout、有限缓存、有限 rate-limit map、解析器评分，以及默认 **Full-Pool** 模式。
 
-**在线演示:** [dns.theazizi.ir](https://dns.theazizi.ir) | **配置地址:** `https://dns.theazizi.ir/dns-query`
-
-> [!NOTE]
-> ### ✨ New Features in V2.1.1
-> - Over 130 new Doh servers added to the backend - Update Worker.js
+**在线演示:** [dns.theazizi.ir](https://dns.theazizi.ir)  
+**默认端点:** `https://dns.theazizi.ir/dns-query`
 
 ---
 
-## ⚠ 重要声明（受限地区用户必读）
+## ✨ V2.2.0 新功能
 
-### 1. 默认域名干扰
-Cloudflare 的默认分配域名 (`*.workers.dev`) 在部分受限地区可能已被防火墙干扰。您 **必须** 将此 Worker 绑定到您 **自定义域名**（如 `dns.yourdomain.com`）。请确保 Cloudflare DNS 面板中的 **小云朵 (Proxied)** 已开启。
-
-### 2. 不改变公网 IP
-该工具 **仅加密 DNS 查询过程**。它不会改变您的公网 IP 地址。访问 X (Twitter) 等社交平台时，服务器仍会检测到您的原始地理位置。如需全局隐身，请配合 VPN 或 Proxy 使用。
-
-### 3. 解析局限性
-该服务主要解决 DNS 污染问题。它本身无法绕过 IP 级别屏蔽、SNI 过滤或深度包检测 (DPI)。
+- **默认 Full-Pool 模式:** `/dns-query` 默认使用完整解析池。
+- **可选解析器 Profile:** 仍然支持 `default`、`security`、`family`、`adblock`、`dns64`。
+- **安全 GET 解码:** 对 DoH GET 的 base64url 数据进行验证和安全解码。
+- **Method 与 Content-Type 验证:** 只允许 `GET` 和 `POST`；POST 必须使用 `application/dns-message`。
+- **Body Size 验证:** 拒绝过大的 DNS message。
+- **DNS Packet 验证:** 检查 query 结构，并要求只有一个 DNS question。
+- **上游 timeout:** 使用 `AbortController` 中止过慢的上游请求。
+- **有限缓存:** 使用 `MAX_CACHE_ENTRIES` 限制内存缓存大小。
+- **有限 Throttle Map:** 使用 `MAX_THROTTLE_ENTRIES` 控制 rate-limit 内存占用。
+- **SHA-256 Cache Key**
+- **更安全的 HTML 渲染:** Dashboard 中来自 host 的 endpoint 会先被 escape。
+- **更干净的前端 JS:** 不再依赖全局 `event`；Clipboard API 带 fallback。
+- **更准确的隐私说明:** 明确说明 DoH 只加密 DNS，不是 VPN。
 
 ---
 
-## 🚀 核心架构：v2.1.1 智能竞速引擎
+## ⚠ 重要说明
 
-常规 DoH 请求可能会因为单一点位拥塞而响应缓慢。本版本通过以下机制确保零延迟：
-- **8 路径并发:** 每一个 DNS 请求都会同步发送至全球 8 个当前得分最高的解析服务器（涵盖 Google, Cloudflare, Quad9, AdGuard 等）。
-- **最快响应胜出:** Worker 只采用第一个返回的合法解析包，从而将解析延迟降至极致（边缘节点处理时间通常小于 30ms）。
-- **节点自动评价:** 系统自动对服务器性能评分。若某个节点出现连接超时或污染，其权重将瞬间自动下降并退出优先解析列表。
+### 1. Worker 默认子域名可能被阻断
+
+Cloudflare Worker 默认域名 `*.workers.dev` 在某些网络中可能不可用或不稳定。建议绑定自己的自定义域名，例如：
+
+```txt
+dns.yourdomain.com
+```
+
+请确保 Cloudflare DNS 中该域名开启 **Proxied** 橙色云朵。
+
+### 2. 只处理 DNS，不是 VPN
+
+本服务只加密客户端与 Worker 之间的 **DNS 查询**。它不会更改您的公网 IP，不会隐藏最终连接的目标 IP，也不能替代完整 VPN 或 Proxy。
+
+如果需要完整流量隧道或隐藏 IP，请配合 VPN、Proxy、v2rayN、Hiddify、Nekoray、Clash 等工具。
+
+### 3. 能解决什么，不能解决什么
+
+适合解决 DNS 污染、DNS 劫持、ISP DNS 篡改和 DNS 级别封锁。
+
+不能单独保证绕过 IP 封锁、SNI 过滤、TLS/HTTPS 封锁、QUIC 封锁、DPI 或网络级限速。
+
+---
+
+## 🚀 架构：并行竞速引擎
+
+传统 DoH 服务通常依赖单一解析器。如果该解析器变慢、被阻断或不稳定，整体服务会变慢。本 Worker 使用竞速引擎：
+
+- **解析器竞速:** 每个 DNS query 会选择当前评分最高的上游解析器。
+- **并发请求:** 同时请求多个上游。
+- **最快合法响应胜出:** 第一个合法 DNS response 会返回给用户。
+- **自愈评分:** 成功的解析器加分，失败或 timeout 的解析器降分。
+- **Timeout 保护:** 使用 `AbortController` 中止慢速上游。
+- **安全有限缓存:** 高频问题可从有限内存缓存中返回。
+
+当前重要常量：
+
+```js
+DEFAULT_PROFILE: 'all'
+CACHE_TTL_SECONDS: 300
+MAX_CACHE_ENTRIES: 5000
+MAX_THROTTLE_ENTRIES: 20000
+MAX_DNS_MESSAGE_BYTES: 4096
+RATE_LIMIT_MAX_REQUESTS: 250
+UPSTREAM_TIMEOUT_MS: 1800
+RACE_COUNT: 4
+```
+
+---
+
+## 🌐 端点与 Profile
+
+### 默认 Full-Pool 端点
+
+```txt
+https://dns.theazizi.ir/dns-query
+```
+
+新版本默认配置为：
+
+```js
+DEFAULT_PROFILE: 'all'
+```
+
+也就是说，简单的 `/dns-query` 不需要 query parameter，会直接使用完整解析池。
+
+### 可选 Profile
+
+```txt
+https://dns.theazizi.ir/dns-query?profile=default
+https://dns.theazizi.ir/dns-query?profile=security
+https://dns.theazizi.ir/dns-query?profile=family
+https://dns.theazizi.ir/dns-query?profile=adblock
+https://dns.theazizi.ir/dns-query?profile=dns64
+```
+
+| Profile | 用途 |
+|---|---|
+| `all` | 完整混合解析池。默认模式。 |
+| `default` | 平衡公共解析器，不混合 family/adblock/DNS64 策略。 |
+| `security` | 安全与恶意软件过滤解析器。 |
+| `family` | 家庭安全过滤解析器。 |
+| `adblock` | 广告与 tracker 过滤解析器。 |
+| `dns64` | 适用于 IPv6-only/NAT64 网络。 |
+
+> [!WARNING]
+> `all` 模式会混合不同策略的解析器。这样覆盖范围更大，但某些域名的结果可能会根据胜出的上游策略而变化。如果需要可预测策略，请使用指定 profile。
 
 ---
 
 ## 📋 功能特点
 
-- **✅ 边缘缓存:** 热门网站记录（如 Google, Spotify 等）会存储在共享的 RAM 中，实现瞬时解析响应。
-- **✅ 多语言支持:** 内置英语、波斯语 (FA) 和简体中文 (ZH) 的图形化配置教程。
-- **✅ 请求频率保护:** 每个 IP 每分钟限制 250 次请求，有效防止暴力请求并确保系统长期稳定运行。
-- **✅ 隐匿通信:** 查询流量包裹在 **端口 443 (HTTPS)** 协议中，看起来与普通网页浏览完全一致，极难被精准拦截。
+- **✅ 完全运行在 Cloudflare Worker 上**
+- **✅ 大型 DoH 解析池**
+- **✅ 默认通用查询:** `/dns-query`
+- **✅ 可选分组 Profile**
+- **✅ 支持 DoH GET 与 POST**
+- **✅ 安全 base64url GET 解码**
+- **✅ method、content-type、packet size 与 DNS 结构验证**
+- **✅ 上游 response ID 与 response flag 验证**
+- **✅ 上游 timeout**
+- **✅ 解析器动态评分**
+- **✅ 有限 cache 与有限 throttle map**
+- **✅ 基础 rate limit：每 IP 每分钟 250 请求**
+- **✅ 英语、波斯语、中文 Dashboard**
+- **✅ 健康检查端点:** `/health`
 
 ---
 
-## 📖 如何部署
+## 📖 部署
 
-1. **部署 Worker:** 在 Cloudflare 面板新建 Worker，并粘贴项目中的 `worker.js` 代码。
-2. **绑定域名:** 在 Worker 的 `Settings -> Domains & Routes` 中，添加您的自定义二级域名。
-3. **启用代理:** 确保该域名的 Cloudflare DNS 设置中处于 **开启 (Proxied)** 代理状态。
+1. 在 Cloudflare 创建新的 Worker。
+2. 粘贴项目中的 `worker.js`。
+3. Deploy Worker。
+4. 在 `Settings -> Domains & Routes` 添加自定义子域名。
+5. 在 Cloudflare DNS 中确保橙色云朵 Proxied 已开启。
+6. 使用您的 DoH 端点：
 
----
-
-## 🔧 配置指南：为何“浏览器配置”是最佳选择？
-
-### 🛑 核心技术差异：DoH vs DoT
-现代操作系统（Windows 11 系统设置、安卓的“私有 DNS”、或 iOS 的内置描述文件）通常默认采用运行在 **853 端口** 上的 **DNS-over-TLS (DoT)**。
-*   由于此 Cloudflare Worker 运行在 **443 端口** (HTTPS)，大多数操作系统的原生设置项并不接受 `https://` 开头的完整链接，并会报错。
-
-### 🏆 最佳解决方案：浏览器内置设置（强烈推荐 ⭐）
-浏览器自带独立的 DoH 引擎，不仅完美支持 443 端口，其稳定性也远超系统全局配置方案。
-
-#### 🌐 Google Chrome, Edge, Brave, Chromium 系列
-1. 进入“设置” -> “隐私和安全” -> “安全性”。
-2. 开启 **“使用安全 DNS”**。
-3. 选择 **“自定义 (Custom)”**。
-4. 粘贴上方属于您的 DoH 解析端点 URL。
-
-#### 🦊 Mozilla Firefox
-1. 进入“设置” -> 搜索“DNS”。
-2. 找到 **“基于 HTTPS 的 DNS”**。
-3. 设置为 **“最高保护”**。
-4. 选择自定义解析商，并输入您的 DoH 地址。
-
-#### 📱 移动端 (安卓与 iOS)
-- **Safari:** 苹果设备目前较难通过原生界面设置 Port 443 解析。建议安装 **火狐浏览器 (Firefox)** 或 **Brave**，并在这些浏览器的应用设置中进行配置。
-- **全局应用:** 如果需要在手机上全系统使用，建议安装 **Intra** 或 **RethinkDNS**。在 App 中选择“自定义 DoH 解析”并输入本页面的链接。
+```txt
+https://dns.yourdomain.com/dns-query
+```
 
 ---
 
-👤 开发人员与技术支持
-项目作者: TheGreatAzizi
+## 🔧 配置指南
 
-X (Twitter): https://x.com/the_azzi
+### Chrome / Edge / Brave
+
+1. 打开 `Settings -> Privacy and security -> Security`。
+2. 启用 **Use Secure DNS**。
+3. 选择 **Custom**。
+4. 输入您的端点：
+
+```txt
+https://dns.yourdomain.com/dns-query
+```
+
+如果浏览器提示 invalid provider，请先用 DoH GET 测试端点。有时浏览器内部验证或当前系统 DNS 会导致验证失败，即使 Worker 本身正常。
+
+### Firefox
+
+1. 打开 `Settings -> Privacy & Security`。
+2. 找到 **DNS over HTTPS**。
+3. 选择 **Max Protection** 或 **Custom**。
+4. 输入您的 DoH 端点。
+
+### Android / iOS
+
+Android Private DNS 通常需要 **DoT**，不是完整 DoH URL。此 Worker 建议使用支持 Custom DoH URL 的客户端：
+
+- Intra
+- RethinkDNS
+- Firefox Mobile
+- Brave Mobile
+
+### Windows
+
+Windows 原生 DNS 设置通常不能直接使用此类完整 DoH URL。推荐：
+
+- 浏览器内置 Secure DNS
+- YogaDNS
+- dnscrypt-proxy
+- v2rayN / Xray DNS
+- 任何支持 Custom DoH URL 的客户端
+
+---
+
+## 🧪 快速测试
+
+健康的 DoH GET 请求应返回：
+
+```txt
+HTTP 200
+Content-Type: application/dns-message
+```
+
+响应可能包含：
+
+```txt
+x-cache: HIT / MISS
+x-profile: all
+x-winner: <upstream-url>
+x-winner-lat: <latency>
+```
+
+---
+
+## 🧩 关于 YouTube 等服务
+
+YouTube 不只依赖一个域名，它还会使用多个相关域名：
+
+```txt
+youtube.com
+www.youtube.com
+youtubei.googleapis.com
+youtube.googleapis.com
+googlevideo.com
+ytimg.com
+i.ytimg.com
+ggpht.com
+```
+
+如果这些域名都能成功解析但网站仍无法打开，说明问题可能不只是 DNS，需要通过 VPN/Proxy/TUN 工具转发完整 HTTPS 流量。
+
+---
+
+## 👤 Credits & Links
+
+Developer: **TheGreatAzizi**  
+Twitter/X: [@the_azzi](https://x.com/the_azzi)
