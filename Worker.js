@@ -391,11 +391,9 @@ function parseDNSQuestion(packet) {
       return { ok: false, error: 'Invalid DNS question name' };
     }
 
-    let label = '';
-    for (let i = 0; i < len; i++) {
-      const ch = bytes[offset++];
-      label += String.fromCharCode(ch).toLowerCase();
-    }
+    const subarray = bytes.subarray(offset, offset + len);
+    const label = String.fromCharCode.apply(null, subarray).toLowerCase();
+    offset += len;
 
     labels.push(label);
   }
